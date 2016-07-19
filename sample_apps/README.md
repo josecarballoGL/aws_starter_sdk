@@ -6,7 +6,7 @@ To create a new application called ```my-new-app```, follow these steps :
 * Create a directory in *sample_apps* (or any other directory) called ```my-new-app```
 
    		  mkdir my-new-app
-2. In this directory, create a ```Makefile```. Copy the following into
+2. In this directory, create a ```build.mk```. Copy the following into
 this file
 
 
@@ -27,7 +27,7 @@ this file
 
 		$ tree
 		.
-		├── Makefile
+		├── build.mk
 		└── src
 		    ├── aws_starter_root_ca_cert.h
 		    └── main.c
