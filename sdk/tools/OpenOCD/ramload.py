@@ -60,7 +60,7 @@ def print_usage():
     print sys.argv[0] + " <app.axf> [options]"
     print "Optional Usage:"
     print " [<-i | --interface> <JTAG hardware interface name>]"
-    print "          Supported ones are ftdi, jlink, amontec, malink. Default is ftdi."
+    print "          Supported ones are ftdi and stlink. Default is ftdi."
     print " [-s | --semihosting]"
     print "          Enable semihosting based console output"
     print " [-h | --help]"

@@ -60,7 +60,7 @@ def print_usage():
     print sys.argv[0]
     print "Optional Usage:"
     print " [<-i | --interface> <JTAG hardware interface name>]"
-    print "          Supported ones are ftdi, jlink, amontec, malink. Default is ftdi."
+    print "          Supported ones are ftdi and stlink. Default is ftdi."
     print " [-h | --help]"
     print "          Display usage"
     sys.stdout.flush()

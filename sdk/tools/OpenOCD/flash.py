@@ -9,8 +9,13 @@
 import os, sys, platform, getopt, subprocess
 from sys import platform as _platform
 
-IFC_FILE = "ftdi.cfg"
+IFC_FILE = (os.getenv("DEBUG_INTERFACE", "ftdi") or "ftdi") + '.cfg'
+BLOCK_SIZE = 0x10000
+components = [['FC_COMP_FW','0x10000','0x60000','0','mcufw']]
+comp_blob = ['FC_COMP_ALL','0x0','0x7FFF0000','0','all']
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+OPENOCD = ""
 
 # We define which as it may not be available on Windows
 def which(program):
@@ -32,58 +37,80 @@ def which(program):
                 return exe_file
     return ""
 
-if _platform == "linux" or _platform == "linux2":
-    if (platform.machine() == "i686"):
-        OPENOCD_PATH = which(SCRIPT_DIR + "/Linux/openocd")
+def get_openocd():
+    global OPENOCD
+    if _platform == "linux" or _platform == "linux2":
+        if (platform.machine() == "i686"):
+            OPENOCD = which(SCRIPT_DIR + "/Linux/openocd")
+        else:
+            OPENOCD = which(SCRIPT_DIR + "/Linux/openocd64")
+    elif _platform == "darwin":
+        OPENOCD = which("openocd")
+    elif _platform == "win32" or _platform == "win64":
+        OPENOCD = which(SCRIPT_DIR + "/Windows/openocd")
+    if not len(OPENOCD):
+        print "Error: Please install OpenOCD for your platform"
+        sys.exit()
+
+def file_path(file_name):
+    if _platform == "win32" or _platform == "win64":
+        return file_name.replace('\\', '/')
     else:
-        OPENOCD_PATH = which(SCRIPT_DIR + "/Linux/openocd64")
-elif _platform == "darwin":
-    OPENOCD_PATH = which("openocd")
-elif _platform == "win32" or _platform == "win64":
-    OPENOCD_PATH = which(SCRIPT_DIR + "/Windows/openocd")
-
-if not len(OPENOCD_PATH):
-    print "Error: Please install OpenOCD for your platform"
-    sys.exit()
-
-def create_config():
-    cfile = open ('config.cfg','w')
-    cfile.write("# This is an auto-generated config file\n")
-    cfile.write("set CONFIG_FLASH flash\n")
-    cfile.close()
+        return file_name
 
 def cleanup():
     if (os.path.exists("config.cfg")):
         os.remove("config.cfg")
 
 def exit():
-    print_usage()
     cleanup()
     sys.exit()
 
 def print_usage():
     print ""
     print "Usage:"
-    print sys.argv[0]
+    print sys.argv[0] + " [options]"
+    print "Optional Usage:"
+    print " [<-i | --interface> <JTAG hardware interface name>]"
+    print "          Supported ones are ftdi and stlink. Default is ftdi."
     print " [--mcufw </path/to/mcufw>]"
     print "          Write MCU firmware binary <bin> to flash"
     print " [<-f | --flash> </path/to/flash_blob>]"
     print "          Program entire flash"
     print " [-r | --reset]"
     print "          Reset board"
-    print " [-h | --help] "
+    print " [-h | --help]"
     print "          Display usage"
     sys.stdout.flush()
 
-def flash_file(addr, msg, upload_file):
+def create_config():
+    with open ('config.cfg','w') as cfile:
+        cfile.write("# This is an auto-generated config file\n")
+        cfile.write("set CONFIG_FLASH flash\n")
+
+def component_info(comp_name):
+    for comp in components:
+        if (comp[4] == comp_name):
+            if (int(comp[1], 0) % BLOCK_SIZE) or (int(comp[2], 0) % BLOCK_SIZE):
+                print "Error: " + comp_name + " address or size is not " + format(BLOCK_SIZE, '#x') + " aligned."
+                exit()
+            return comp
+    print "Error: component " + comp_name + " not found."
+    exit()
+
+def flash_file(comp, msg, upload_file):
     if (os.path.isfile(upload_file) == False):
-        print "Error: Could not find file", upload_file
+        print "Error: File " + upload_file + " does not exit"
+        exit()
+    if (os.stat(upload_file).st_size > int(comp[2], 0)):
+        print "Error: File size (" + format(os.stat(upload_file).st_size, "#x") + " bytes) is larger than " + comp[4] + " size (" + comp[2] + ")"
         exit()
     print msg + "..."
+    print "Please wait while flashing is complete. DO NOT PRESS Ctrl+C..."
 
     print "Using OpenOCD interface file", IFC_FILE
     sys.stdout.flush()
-    p = subprocess.call([OPENOCD_PATH, '-s', SCRIPT_DIR + '/interface', '-f', IFC_FILE, '-s', SCRIPT_DIR, '-f', 'config.cfg', '-f', 'openocd.cfg', '-c', ' init', '-c', 'program_image ' + addr + ' ' + upload_file , '-c', 'shutdown'])
+    p = subprocess.call([OPENOCD, '-s', SCRIPT_DIR + '/interface', '-f', IFC_FILE, '-s', SCRIPT_DIR, '-f', 'config.cfg', '-f', 'openocd.cfg', '-c', ' init', '-c', 'program_image ' + comp[1] + ' ' + upload_file , '-c', 'shutdown'])
     sys.stderr.flush()
     if (p==0):
         print msg + " done..."
@@ -97,7 +124,7 @@ def reset_board():
 
     print "Using OpenOCD interface file", IFC_FILE
     sys.stdout.flush()
-    p = subprocess.call([OPENOCD_PATH, '-s', SCRIPT_DIR + '/interface', '-f', IFC_FILE, '-s', SCRIPT_DIR, '-f', 'openocd.cfg', '-c', 'init', '-c', 'reset', '-c', 'shutdown'])
+    p = subprocess.call([OPENOCD, '-s', SCRIPT_DIR + '/interface', '-f', IFC_FILE, '-s', SCRIPT_DIR, '-f', 'openocd.cfg', '-c', 'init', '-c', 'reset', '-c', 'shutdown'])
     sys.stderr.flush()
     if (p==0):
         print msg + " done..."
@@ -105,31 +132,66 @@ def reset_board():
         print msg + " failed..."
     sys.stdout.flush()
 
-if len(sys.argv) <= 1:
-    exit()
+def main():
+    global IFC_FILE
+    global SCRIPT_DIR
+    SCRIPT_DIR = file_path(SCRIPT_DIR)
+    BLOB_FILE = ""
+    RESET_BOARD = 0
+    get_openocd()
 
-else:
-    try:
-        opts, args = getopt.getopt(sys.argv[1:], "f:r", ["flash=","mcufw=","reset"])
-        if len(args):
-            exit()
-    except getopt.GetoptError:
+    if len(sys.argv) <= 1:
+        print_usage()
         exit()
 
-    create_config()
-
-    if ("-f" in sys.argv) or ("--flash" in sys.argv):
-	try:
-            index = sys.argv.index("-f")
-        except ValueError:
-            index = sys.argv.index("--flash")
-        flash_file("0x0", "Resetting flash to factory settings", os.path.abspath(sys.argv[index + 1]).replace('\\', '/'))
-
-    if ("--mcufw" in sys.argv):
-        index = sys.argv.index("--mcufw")
-        flash_file("0x10000", "Writing MCU firmware to flash", os.path.abspath(sys.argv[index + 1]).replace('\\', '/'))
+    try:
+        opts, args = getopt.gnu_getopt(sys.argv[1:], "i:f:rh", ["interface=","flash=","mcufw=","reset","help"])
+        if len(args):
+            print_usage()
+            exit()
+    except getopt.GetoptError as e:
+        print e
+        print_usage()
+        exit()
 
     cleanup()
 
-    if ("-r" in sys.argv) or ("--reset" in sys.argv):
+    # This is special handling of arguments, remove options after using
+    for opt, arg in reversed(opts):
+        if opt in ("-i", "--interface"):
+            IFC_FILE = arg + '.cfg'
+            opts.remove((opt, arg))
+        elif opt in ("-f", "--flash"):
+            BLOB_FILE = file_path(arg)
+            opts.remove((opt, arg))
+        elif opt in ("-r", "--reset"):
+            RESET_BOARD = 1
+            opts.remove((opt, arg))
+        elif opt in ("-h", "--help"):
+            print_usage()
+            sys.exit()
+
+    create_config()
+
+    if len(BLOB_FILE):
+        flash_file(comp_blob, "Resetting flash to factory settings", BLOB_FILE)
+
+    if (len(opts) == 0):
+        if (RESET_BOARD == 1):
+            reset_board()
+        exit()
+
+    for opt, arg in opts:
+        if opt in ("--mcufw"):
+            flash_file(component_info('mcufw'), 'Writing MCU firmware to flash', file_path(arg))
+
+    cleanup()
+
+    if (RESET_BOARD == 1):
         reset_board()
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        cleanup()
