@@ -20,6 +20,8 @@ APP_PATH ?= $(realpath $(APP))
 subdir-y += $(APP_PATH)
 endif
 
+FLASHPROG_PATH = sdk/tools/OpenOCD/flashprog.py
+
 include build/aws_starter_sdk_rules.mk
 #####################
 ##################### Only the Default Targets
@@ -31,4 +33,8 @@ do_the_build: pre-build-1
 
 build: $(b-exec-apps-y)
 	@echo $(b-exec-paths-y)
+
+install:
+	@./flash.sh
+
 .PHONY: all build do_the_build post-build-1 pre-build-1
